@@ -1,0 +1,2 @@
+all:
+	./proto.py

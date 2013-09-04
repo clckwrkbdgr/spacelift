@@ -16,7 +16,8 @@ SCREEN_SIZE = 640, 480
 LEVEL_SPEED = 0.3
 PLATFORM_SIZE = 50, 60
 PLATFORM_HP = 100
-ENEMY_HP = 10
+PLATFORM_DAMAGE = 65535
+ENEMY_HP = 30
 ENEMY_DAMAGE = 30
 ENEMY_SIZE = 40, 50
 ENEMY_SPEED = 0.0
@@ -29,15 +30,28 @@ ENEMY_SHOOTING_DELAY = 1000
 START_POS = 320, 420
 BONUS_SIZE = 32, 32
 
-PLATFORM_TYPE = PLATFORM_SIZE, BLUE, PLATFORM_HP, (0, 0)
-ENEMY_TYPE = ENEMY_SIZE, RED, ENEMY_HP, (0, ENEMY_SPEED + LEVEL_SPEED)
-BONUS_TYPE = BONUS_SIZE, YELLOW, 0, (0, LEVEL_SPEED)
-PLAYER_BULLET_TYPE = BULLET_SIZE, BLUE, 0, (0, -BULLET_SPEED)
-ENEMY_BULLET_TYPE = BULLET_SIZE, RED, 0, (0, BULLET_SPEED)
+ENEMY_PARTY = "Enemy"
+ENEMY_BULLET_PARTY = "Enemy bullet"
+PLAYER_BULLET_PARTY = "Player bullet"
+PLAYER_PARTY = "Player"
+BONUS_PARTY = "Bonus"
+COLLIDES = []
+COLLIDES.append((ENEMY_PARTY, PLAYER_BULLET_PARTY))
+COLLIDES.append((ENEMY_PARTY, PLAYER_PARTY))
+COLLIDES.append((ENEMY_BULLET_PARTY, PLAYER_PARTY))
+COLLIDES.append((BONUS_PARTY, PLAYER_PARTY))
+collides = lambda a, b: ((a, b) in COLLIDES) or ((b, a) in COLLIDES) # TODO check if works
+
+# TYPE             = PARTY                SIZE           COLOR   MAX_HP       DAMAGE           SPEED                           SHOOTING DELAY         BULLET_TYPE
+BONUS_TYPE         = BONUS_PARTY,         BONUS_SIZE   , YELLOW, 0,           0,               (0, LEVEL_SPEED),               None,                  None
+PLAYER_BULLET_TYPE = PLAYER_BULLET_PARTY, BULLET_SIZE  , BLUE  , 1,           BULLET_DAMAGE,   (0, -BULLET_SPEED),             None,                  None
+ENEMY_BULLET_TYPE  = ENEMY_BULLET_PARTY,  BULLET_SIZE  , RED   , 1,           BULLET_DAMAGE,   (0, BULLET_SPEED),              None,                  None
+PLATFORM_TYPE      = PLAYER_PARTY,        PLATFORM_SIZE, BLUE  , PLATFORM_HP, PLATFORM_DAMAGE, (0, 0),                         PLAYER_SHOOTING_DELAY, PLAYER_BULLET_TYPE
+ENEMY_TYPE         = ENEMY_PARTY,         ENEMY_SIZE   , RED   , ENEMY_HP,    ENEMY_DAMAGE,    (0, ENEMY_SPEED + LEVEL_SPEED), ENEMY_SHOOTING_DELAY,  ENEMY_BULLET_TYPE
 
 class Object:
 	def __init__(self, pos, type_values):
-		size, color, self.max_hp, self.speed = type_values
+		self.party, size, color, self.max_hp, self.damage, self.speed, self.max_shooting_delay, self.bullet_type = type_values
 
 		self.surface = pygame.surface.Surface(size)
 		self.surface.fill(color)
@@ -46,6 +60,15 @@ class Object:
 		self.alive = True
 		self.hp = self.max_hp
 		self.shooting_delay = 0
+
+	def shoot(self, shooting):
+		bullets = []
+		if shooting and self.shooting_delay <= 0:
+			bullets.append(Object(self.pos, self.bullet_type))
+			self.shooting_delay = self.max_shooting_delay
+		if self.shooting_delay > 0:
+			self.shooting_delay -= 1
+		return bullets
 
 	def move(self, x, y, rect_list=None):
 		old_pos = self.pos
@@ -78,7 +101,7 @@ wall_right.fill(GRAY)
 wall_right_rect = wall_right.get_rect()
 wall_right_rect.topright = SCREEN_SIZE[0], 0
 
-enemy_map = [(i * 1000, 100 + i * 25) for i in range(20)]
+enemy_map = [(i * 500, 100 + i * 25) for i in range(20)]
 bonus_map = [(100 + i * 1000, random.randrange(wall_left_rect.right + BONUS_SIZE[0]/2, wall_right_rect.left - BONUS_SIZE[0]/2)) for i in range(5)]
 
 platform = Object(START_POS, PLATFORM_TYPE)
@@ -113,77 +136,51 @@ while True:
 	bonus_map = [(map_pos, screen_pos) for map_pos, screen_pos in bonus_map if map_pos > level_pos]
 
 	platform.move(shift, 0, [wall_left_rect, wall_right_rect])
-	for bullet in player_bullets:
-		bullet.auto_move()
-	for bullet in enemy_bullets:
-		bullet.auto_move()
-	for bonus in bonuses:
-		bonus.auto_move()
+	for o in player_bullets + enemy_bullets + bonuses + enemies:
+		o.auto_move()
+
 	for enemy in enemies:
-		enemy.auto_move()
+		enemy_bullets += enemy.shoot(True)
+	player_bullets += platform.shoot(shooting)
 
 	for bullet in enemy_bullets:
 		if platform.get_rect().colliderect(bullet.get_rect()):
-			bullet.alive = False
-			platform.hp -= BULLET_DAMAGE
+			bullet.hp -= platform.damage
+			platform.hp -= bullet.damage
 	for enemy in enemies:
 		for bullet in player_bullets:
 			if enemy.get_rect().colliderect(bullet.get_rect()):
-				bullet.alive = False
-				enemy.hp -= BULLET_DAMAGE
-	for enemy in enemies:
-		if enemy.shooting_delay <= 0:
-			enemy_bullets.append(Object(enemy.pos, ENEMY_BULLET_TYPE))
-			enemy.shooting_delay = ENEMY_SHOOTING_DELAY
-		if enemy.shooting_delay > 0:
-			enemy.shooting_delay -= 1
+				bullet.hp -= enemy.damage
+				enemy.hp -= bullet.damage
 	for enemy in enemies:
 		if enemy.get_rect().colliderect(platform.get_rect()):
-			enemy.alive = False
-			platform.hp -= ENEMY_DAMAGE
-	for enemy in enemies:
-		if enemy.hp < 0:
-			enemy.alive = False
-	if shooting and platform.shooting_delay <= 0:
-		player_bullets.append(Object(platform.pos, PLAYER_BULLET_TYPE))
-		platform.shooting_delay = PLAYER_SHOOTING_DELAY
-	if platform.shooting_delay > 0:
-		platform.shooting_delay -= 1
-	if platform.hp <= 0:
-		platform_count -= 1
-		platform = Object(START_POS, PLATFORM_TYPE)
-		if platform_count < 0:
-			sys.exit()
+			enemy.hp -= platform.damage
+			platform.hp -= enemy.damage
+
+	for o in [platform] + enemies + player_bullets + enemy_bullets + bonuses:
+		if o.max_hp > 0 and o.hp <= 0:
+			o.alive = False
 
 	enemies = [enemy for enemy in enemies if enemy.alive and enemy.get_rect().top < SCREEN_SIZE[1]]
 	player_bullets = [bullet for bullet in player_bullets if bullet.alive and 0 < bullet.get_rect().bottom]
 	enemy_bullets = [bullet for bullet in enemy_bullets if bullet.alive and bullet.get_rect().top < SCREEN_SIZE[1]]
 	bonuses = [bonus for bonus in bonuses if bonus.alive and bonus.get_rect().top < SCREEN_SIZE[1]]
+	if not platform.alive:
+		platform_count -= 1
+		platform = Object(START_POS, PLATFORM_TYPE)
+		if platform_count < 0:
+			sys.exit()
 
 	# Drawing.
 	screen.fill(BLACK)
-	screen.blit(platform.surface, platform.get_rect())
 	screen.blit(wall_left, wall_left_rect)
 	screen.blit(wall_right, wall_right_rect)
-	for bullet in player_bullets:
-		screen.blit(bullet.surface, bullet.get_rect())
-	for enemy in enemies:
-		screen.blit(enemy.surface, enemy.get_rect())
-	for bullet in enemy_bullets:
-		screen.blit(bullet.surface, bullet.get_rect())
-	for bonus in bonuses:
-		screen.blit(bonus.surface, bonus.get_rect())
+	for o in [platform] + bonuses + enemies + enemy_bullets + player_bullets:
+		screen.blit(o.surface, o.get_rect())
 
-	hud = ["You: ({0:10.2f},{1:10.2f}) {2}/{3}hp x{4}".format(platform.pos[0], platform.pos[1], platform.hp, platform.max_hp, platform_count)]
-	hud.append("Level: {0:10.2f}; {1}".format(level_pos, "shooting" if shooting else ""))
-	for bonus in bonuses:
-		hud.append("Bonus: {0:10.2f}, {1:#10.2f}".format(bonus.pos[0], bonus.pos[1]))
-	for enemy in enemies:
-		hud.append("Enemy: {0:10.2f}, {1:#10.2f}".format(enemy.pos[0], enemy.pos[1]))
-	for bullet in enemy_bullets:
-		hud.append("Bullet: {0:10.2f}, {1:#10.2f}".format(bullet.pos[0], bullet.pos[1]))
-	for bullet in player_bullets:
-		hud.append("Bullet: {0:10.2f}, {1:#10.2f}".format(bullet.pos[0], bullet.pos[1]))
+	hud = ["Level: {0:10.2f}; x{2}, {1}".format(level_pos, "shooting" if shooting else "", platform_count)]
+	for o in [platform] + bonuses + enemies + enemy_bullets + player_bullets:
+		hud.append("{0}: ({1:0.2f},{2:#0.2f}) {3}/{4}hp".format(o.party, o.pos[0], o.pos[1], o.hp, o.max_hp))
 	for number, line in enumerate(hud):
 		screen.blit(font.render(line, True, WHITE), (wall_left_rect.right, number * font.get_height()))
 

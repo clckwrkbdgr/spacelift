@@ -43,7 +43,7 @@ COLLIDES.append((BONUS_PARTY, PLAYER_PARTY))
 collides = lambda a, b: ((a, b) in COLLIDES) or ((b, a) in COLLIDES) # TODO check if works
 
 # TYPE             = PARTY                SIZE           COLOR   MAX_HP       DAMAGE           SPEED                           SHOOTING DELAY         BULLET_TYPE
-BONUS_TYPE         = BONUS_PARTY,         BONUS_SIZE   , YELLOW, 0,           0,               (0, LEVEL_SPEED),               None,                  None
+BONUS_TYPE         = BONUS_PARTY,         BONUS_SIZE   , YELLOW, 1,           0,               (0, LEVEL_SPEED),               None,                  None
 PLAYER_BULLET_TYPE = PLAYER_BULLET_PARTY, BULLET_SIZE  , BLUE  , 1,           BULLET_DAMAGE,   (0, -BULLET_SPEED),             None,                  None
 ENEMY_BULLET_TYPE  = ENEMY_BULLET_PARTY,  BULLET_SIZE  , RED   , 1,           BULLET_DAMAGE,   (0, BULLET_SPEED),              None,                  None
 PLATFORM_TYPE      = PLAYER_PARTY,        PLATFORM_SIZE, BLUE  , PLATFORM_HP, PLATFORM_DAMAGE, (0, 0),                         PLAYER_SHOOTING_DELAY, PLAYER_BULLET_TYPE
@@ -143,19 +143,12 @@ while True:
 		enemy_bullets += enemy.shoot(True)
 	player_bullets += platform.shoot(shooting)
 
-	for bullet in enemy_bullets:
-		if platform.get_rect().colliderect(bullet.get_rect()):
-			bullet.hp -= platform.damage
-			platform.hp -= bullet.damage
-	for enemy in enemies:
-		for bullet in player_bullets:
-			if enemy.get_rect().colliderect(bullet.get_rect()):
-				bullet.hp -= enemy.damage
-				enemy.hp -= bullet.damage
-	for enemy in enemies:
-		if enemy.get_rect().colliderect(platform.get_rect()):
-			enemy.hp -= platform.damage
-			platform.hp -= enemy.damage
+	for a in [platform] + enemies + player_bullets + enemy_bullets + bonuses:
+		for b in [platform] + enemies + player_bullets + enemy_bullets + bonuses:
+			if collides(a.party, b.party):
+				if a.get_rect().colliderect(b.get_rect()):
+					a.hp -= b.damage
+					b.hp -= a.damage
 
 	for o in [platform] + enemies + player_bullets + enemy_bullets + bonuses:
 		if o.max_hp > 0 and o.hp <= 0:

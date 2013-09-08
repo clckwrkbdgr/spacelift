@@ -3,6 +3,7 @@ import sys
 import pygame
 import operator
 import random
+import math
 from pygame.locals import *
 
 BLACK = 0, 0, 0
@@ -51,13 +52,26 @@ class Object:
 class PlayerBullet(Object):
 	def __init__(self, pos):
 		Object.__init__(self, pos, BULLET_SIZE, BLUE)
+		self.speed = (0, -BULLET_SPEED)
 
 	def collide_with(self, other):
 		if isinstance(other, Enemy):
 			self.alive = False
 
 	def move(self):
-		self.pos[1] -= BULLET_SPEED
+		self.pos = list(map(operator.add, self.pos, self.speed))
+
+class PlayerLeftSideBullet(PlayerBullet):
+	def __init__(self, pos):
+		PlayerBullet.__init__(self, pos)
+		speed = BULLET_SPEED / math.sqrt(2)
+		self.speed = (-speed, -speed)
+
+class PlayerRightSideBullet(PlayerBullet):
+	def __init__(self, pos):
+		PlayerBullet.__init__(self, pos)
+		speed = BULLET_SPEED / math.sqrt(2)
+		self.speed = (+speed, -speed)
 
 class EnemyBullet(Object):
 	def __init__(self, pos):
@@ -70,19 +84,19 @@ class EnemyBullet(Object):
 	def move(self):
 		self.pos[1] += BULLET_SPEED
 
-class ShootingObject(Object):
-	def __init__(self, pos, size, color, shooting_delay, bullet_type):
-		Object.__init__(self, pos, size, color)
-		self.max_shooting_delay, self.bullet_type = shooting_delay, bullet_type
-		self.shooting_delay = 0
+class Weapon:
+	def __init__(self, delay, bullet_type):
+		self.max_delay = delay
+		self.delay = 0
+		self.bullet_type = bullet_type
 
-	def _shoot(self, shooting=True):
+	def shoot(self, pos, wants_to_shoot=True):
 		bullets = []
-		if shooting and self.shooting_delay <= 0:
-			bullets.append(self.bullet_type(self.pos))
-			self.shooting_delay = self.max_shooting_delay
-		if self.shooting_delay > 0:
-			self.shooting_delay -= 1
+		if wants_to_shoot and self.delay <= 0:
+			bullets.append(self.bullet_type(pos))
+			self.delay = self.max_delay
+		if self.delay > 0:
+			self.delay -= 1
 		return bullets
 
 class PlayerController:
@@ -91,9 +105,10 @@ class PlayerController:
 		self.shift = 0
 		self.shooting = False
 
-class Platform(ShootingObject):
+class Platform(Object):
 	def __init__(self, pos, controller):
-		ShootingObject.__init__(self, pos, PLATFORM_SIZE, BLUE, PLAYER_SHOOTING_DELAY, PlayerBullet)
+		Object.__init__(self, pos, PLATFORM_SIZE, BLUE)
+		self.weapons = [((0, 0), Weapon(PLAYER_SHOOTING_DELAY, PlayerBullet))]
 		self.controller = controller
 		self.max_hp = PLATFORM_HP
 		self.hp = self.max_hp
@@ -103,6 +118,13 @@ class Platform(ShootingObject):
 			self.hp -= ENEMY_DAMAGE
 		elif isinstance(other, EnemyBullet):
 			self.hp -= BULLET_DAMAGE
+		elif isinstance(other, Bonus):
+			if len(self.weapons) == 1:
+				self.weapons.append( ((-PLATFORM_SIZE[0]/2, 0), Weapon(PLAYER_SHOOTING_DELAY, PlayerBullet)) )
+				self.weapons.append( ((+PLATFORM_SIZE[0]/2, 0), Weapon(PLAYER_SHOOTING_DELAY, PlayerBullet)) )
+			if len(self.weapons) == 3:
+				self.weapons.append( ((-PLATFORM_SIZE[0]/2, 0), Weapon(PLAYER_SHOOTING_DELAY, PlayerLeftSideBullet)) )
+				self.weapons.append( ((+PLATFORM_SIZE[0]/2, 0), Weapon(PLAYER_SHOOTING_DELAY, PlayerRightSideBullet)) )
 		if self.hp <= 0:
 			self.alive = False
 
@@ -113,11 +135,15 @@ class Platform(ShootingObject):
 			self.pos[0] = old_pos
 
 	def shoot(self):
-		return self._shoot(self.controller.shooting)
+		bullets = []
+		for shift, weapon in self.weapons:
+			bullets += weapon.shoot(map(operator.add, self.pos, shift), self.controller.shooting)
+		return bullets
 
-class Enemy(ShootingObject):
+class Enemy(Object):
 	def __init__(self, pos):
-		ShootingObject.__init__(self, pos, ENEMY_SIZE, RED, ENEMY_SHOOTING_DELAY, EnemyBullet)
+		Object.__init__(self, pos, ENEMY_SIZE, RED)
+		self.weapon = Weapon(ENEMY_SHOOTING_DELAY, EnemyBullet)
 		self.max_hp = ENEMY_HP
 		self.hp = self.max_hp
 
@@ -130,7 +156,7 @@ class Enemy(ShootingObject):
 			self.alive = False
 
 	def shoot(self):
-		return self._shoot()
+		return self.weapon.shoot(self.pos)
 
 	def move(self):
 		self.pos[1] += LEVEL_SPEED + ENEMY_SPEED

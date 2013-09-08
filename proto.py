@@ -12,6 +12,8 @@ GRAY = 80, 80, 80
 WHITE = 255, 255, 255
 RED = 255, 0, 0
 YELLOW = 255, 255, 0
+DARKGREEN = 0, 128, 0
+GREEN = 0, 255, 0
 
 SCREEN_SIZE = 640, 480
 LEVEL_SPEED = 0.3
@@ -30,6 +32,7 @@ PLAYER_SHOOTING_DELAY = 100
 ENEMY_SHOOTING_DELAY = 1000
 START_POS = 320, 420
 BONUS_SIZE = 32, 32
+HEALTH_BONUS_INC = 30
 
 class Object:
 	def __init__(self, pos, size, color):
@@ -118,13 +121,17 @@ class Platform(Object):
 			self.hp -= ENEMY_DAMAGE
 		elif isinstance(other, EnemyBullet):
 			self.hp -= BULLET_DAMAGE
-		elif isinstance(other, Bonus):
+		elif isinstance(other, WeaponBonus):
 			if len(self.weapons) == 1:
 				self.weapons.append( ((-PLATFORM_SIZE[0]/2, 0), Weapon(PLAYER_SHOOTING_DELAY, PlayerBullet)) )
 				self.weapons.append( ((+PLATFORM_SIZE[0]/2, 0), Weapon(PLAYER_SHOOTING_DELAY, PlayerBullet)) )
-			if len(self.weapons) == 3:
+			elif len(self.weapons) == 3:
 				self.weapons.append( ((-PLATFORM_SIZE[0]/2, 0), Weapon(PLAYER_SHOOTING_DELAY, PlayerLeftSideBullet)) )
 				self.weapons.append( ((+PLATFORM_SIZE[0]/2, 0), Weapon(PLAYER_SHOOTING_DELAY, PlayerRightSideBullet)) )
+		elif isinstance(other, HealthBonus):
+			self.hp += HEALTH_BONUS_INC
+			if self.hp > self.max_hp:
+				self.hp = self.max_hp
 		if self.hp <= 0:
 			self.alive = False
 
@@ -162,8 +169,8 @@ class Enemy(Object):
 		self.pos[1] += LEVEL_SPEED + ENEMY_SPEED
 
 class Bonus(Object):
-	def __init__(self, pos):
-		Object.__init__(self, pos, BONUS_SIZE, YELLOW)
+	def __init__(self, pos, color):
+		Object.__init__(self, pos, BONUS_SIZE, color)
 
 	def collide_with(self, other):
 		if isinstance(other, Platform):
@@ -171,6 +178,14 @@ class Bonus(Object):
 
 	def move(self):
 		self.pos[1] += LEVEL_SPEED
+
+class WeaponBonus(Bonus):
+	def __init__(self, pos):
+		Object.__init__(self, pos, BONUS_SIZE, YELLOW)
+
+class HealthBonus(Bonus):
+	def __init__(self, pos):
+		Object.__init__(self, pos, BONUS_SIZE, DARKGREEN)
 
 
 pygame.init()
@@ -191,7 +206,8 @@ wall_right_rect.topright = SCREEN_SIZE[0], 0
 
 level_map = []
 level_map += [(Enemy, i * 500, 100 + i * 25) for i in range(20)]
-level_map += [(Bonus, 100 + i * 1000, random.randrange(wall_left_rect.right + BONUS_SIZE[0]/2, wall_right_rect.left - BONUS_SIZE[0]/2)) for i in range(5)]
+level_map += [(WeaponBonus, 100 + i * 1000, random.randrange(wall_left_rect.right + BONUS_SIZE[0]/2, wall_right_rect.left - BONUS_SIZE[0]/2)) for i in range(5)]
+level_map += [(HealthBonus, 400 + i * 1000, random.randrange(wall_left_rect.right + BONUS_SIZE[0]/2, wall_right_rect.left - BONUS_SIZE[0]/2)) for i in range(5)]
 
 player = PlayerController([wall_left_rect, wall_right_rect])
 
@@ -199,6 +215,7 @@ platform_count = 3
 level_pos = 0
 platform = Platform(START_POS, player)
 objects = [platform]
+player.shift = pygame.mouse.get_rel()[0]
 
 while True:
 	for event in pygame.event.get():

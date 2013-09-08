@@ -14,6 +14,7 @@ RED = 255, 0, 0
 YELLOW = 255, 255, 0
 DARKGREEN = 0, 128, 0
 GREEN = 0, 255, 0
+PURPLE = 255, 0, 255
 
 SCREEN_SIZE = 640, 480
 LEVEL_SPEED = 0.3
@@ -33,6 +34,7 @@ ENEMY_SHOOTING_DELAY = 1000
 START_POS = 320, 420
 BONUS_SIZE = 32, 32
 HEALTH_BONUS_INC = 30
+INVULNERABILITY_TIME = 2000
 
 class Object:
 	def __init__(self, pos, size, color):
@@ -41,7 +43,7 @@ class Object:
 		self.pos = list(pos)
 		self.alive = True
 
-	def shoot(self):
+	def action(self):
 		return []
 
 	def collide_with(self, other):
@@ -61,8 +63,9 @@ class PlayerBullet(Object):
 		if isinstance(other, Enemy):
 			self.alive = False
 
-	def move(self):
+	def action(self):
 		self.pos = list(map(operator.add, self.pos, self.speed))
+		return []
 
 class PlayerLeftSideBullet(PlayerBullet):
 	def __init__(self, pos):
@@ -84,8 +87,9 @@ class EnemyBullet(Object):
 		if isinstance(other, Platform):
 			self.alive = False
 
-	def move(self):
+	def action(self):
 		self.pos[1] += BULLET_SPEED
+		return []
 
 class Weapon:
 	def __init__(self, delay, bullet_type):
@@ -115,12 +119,15 @@ class Platform(Object):
 		self.controller = controller
 		self.max_hp = PLATFORM_HP
 		self.hp = self.max_hp
+		self.invulnerability = 0
 
 	def collide_with(self, other):
 		if isinstance(other, Enemy):
-			self.hp -= ENEMY_DAMAGE
+			if self.invulnerability <= 0:
+				self.hp -= ENEMY_DAMAGE
 		elif isinstance(other, EnemyBullet):
-			self.hp -= BULLET_DAMAGE
+			if self.invulnerability <= 0:
+				self.hp -= BULLET_DAMAGE
 		elif isinstance(other, WeaponBonus):
 			if len(self.weapons) == 1:
 				self.weapons.append( ((-PLATFORM_SIZE[0]/2, 0), Weapon(PLAYER_SHOOTING_DELAY, PlayerBullet)) )
@@ -132,16 +139,20 @@ class Platform(Object):
 			self.hp += HEALTH_BONUS_INC
 			if self.hp > self.max_hp:
 				self.hp = self.max_hp
+		elif isinstance(other, InvulnerabilityBonus):
+			self.invulnerability += INVULNERABILITY_TIME
 		if self.hp <= 0:
 			self.alive = False
 
-	def move(self):
+	def action(self):
 		old_pos = self.pos[0]
 		self.pos[0] += self.controller.shift
 		if self.get_rect().collidelist(self.controller.rects) != -1:
 			self.pos[0] = old_pos
 
-	def shoot(self):
+		if self.invulnerability > 0:
+			self.invulnerability -= 1
+
 		bullets = []
 		for shift, weapon in self.weapons:
 			bullets += weapon.shoot(map(operator.add, self.pos, shift), self.controller.shooting)
@@ -162,11 +173,9 @@ class Enemy(Object):
 		if self.hp <= 0:
 			self.alive = False
 
-	def shoot(self):
-		return self.weapon.shoot(self.pos)
-
-	def move(self):
+	def action(self):
 		self.pos[1] += LEVEL_SPEED + ENEMY_SPEED
+		return self.weapon.shoot(self.pos)
 
 class Bonus(Object):
 	def __init__(self, pos, color):
@@ -176,8 +185,9 @@ class Bonus(Object):
 		if isinstance(other, Platform):
 			self.alive = False
 
-	def move(self):
+	def action(self):
 		self.pos[1] += LEVEL_SPEED
+		return []
 
 class WeaponBonus(Bonus):
 	def __init__(self, pos):
@@ -186,6 +196,10 @@ class WeaponBonus(Bonus):
 class HealthBonus(Bonus):
 	def __init__(self, pos):
 		Object.__init__(self, pos, BONUS_SIZE, DARKGREEN)
+
+class InvulnerabilityBonus(Bonus):
+	def __init__(self, pos):
+		Object.__init__(self, pos, BONUS_SIZE, PURPLE)
 
 
 pygame.init()
@@ -208,6 +222,7 @@ level_map = []
 level_map += [(Enemy, i * 500, 100 + i * 25) for i in range(20)]
 level_map += [(WeaponBonus, 100 + i * 1000, random.randrange(wall_left_rect.right + BONUS_SIZE[0]/2, wall_right_rect.left - BONUS_SIZE[0]/2)) for i in range(5)]
 level_map += [(HealthBonus, 400 + i * 1000, random.randrange(wall_left_rect.right + BONUS_SIZE[0]/2, wall_right_rect.left - BONUS_SIZE[0]/2)) for i in range(5)]
+level_map += [(InvulnerabilityBonus, 0, random.randrange(wall_left_rect.right + BONUS_SIZE[0]/2, wall_right_rect.left - BONUS_SIZE[0]/2))]
 
 player = PlayerController([wall_left_rect, wall_right_rect])
 
@@ -237,8 +252,7 @@ while True:
 
 	new_objects = []
 	for o in objects:
-		o.move()
-		new_objects += o.shoot()
+		new_objects += o.action()
 	objects += new_objects
 
 	for a in objects:
@@ -261,7 +275,12 @@ while True:
 	for o in objects:
 		screen.blit(o.surface, o.get_rect())
 
-	hud = ["Level: {0:10.2f}; {2}x {3}/{4}hp, {1}".format(level_pos, "shooting" if player.shooting else "", platform_count, platform.hp, platform.max_hp)]
+	hud = "Level: {0:10.2f}; {2}x {3}/{4}hp, {1}, inv: {5}".format(level_pos,
+			"shooting" if player.shooting else "        ",
+			platform_count, platform.hp, platform.max_hp,
+			platform.invulnerability
+			)
+	hud = [hud]
 	for o in objects:
 		hud.append("{0}: ({1:0.2f},{2:#0.2f})".format(o.__class__.__name__, o.pos[0], o.pos[1]))
 	for number, line in enumerate(hud):

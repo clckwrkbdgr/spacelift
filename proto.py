@@ -30,79 +30,121 @@ ENEMY_SHOOTING_DELAY = 1000
 START_POS = 320, 420
 BONUS_SIZE = 32, 32
 
-ENEMY_PARTY = "Enemy"
-ENEMY_BULLET_PARTY = "Enemy bullet"
-PLAYER_BULLET_PARTY = "Player bullet"
-PLAYER_PARTY = "Player"
-BONUS_PARTY = "Bonus"
-COLLIDES = []
-COLLIDES.append((ENEMY_PARTY, PLAYER_BULLET_PARTY))
-COLLIDES.append((ENEMY_PARTY, PLAYER_PARTY))
-COLLIDES.append((ENEMY_BULLET_PARTY, PLAYER_PARTY))
-COLLIDES.append((BONUS_PARTY, PLAYER_PARTY))
-
-# TYPE             = PARTY                SIZE           COLOR   MAX_HP       DAMAGE           SPEED                           SHOOTING DELAY         BULLET_TYPE
-BONUS_TYPE         = BONUS_PARTY,         BONUS_SIZE   , YELLOW, 1,           0,               (0, LEVEL_SPEED),               None,                  None
-PLAYER_BULLET_TYPE = PLAYER_BULLET_PARTY, BULLET_SIZE  , BLUE  , 1,           BULLET_DAMAGE,   (0, -BULLET_SPEED),             None,                  None
-ENEMY_BULLET_TYPE  = ENEMY_BULLET_PARTY,  BULLET_SIZE  , RED   , 1,           BULLET_DAMAGE,   (0, BULLET_SPEED),              None,                  None
-PLATFORM_TYPE      = PLAYER_PARTY,        PLATFORM_SIZE, BLUE  , PLATFORM_HP, PLATFORM_DAMAGE, (0, 0),                         PLAYER_SHOOTING_DELAY, PLAYER_BULLET_TYPE
-ENEMY_TYPE         = ENEMY_PARTY,         ENEMY_SIZE   , RED   , ENEMY_HP,    ENEMY_DAMAGE,    (0, ENEMY_SPEED + LEVEL_SPEED), ENEMY_SHOOTING_DELAY,  ENEMY_BULLET_TYPE
-
 class Object:
-	def __init__(self, pos, type_values, controller=None):
-		self.party, size, color, self.max_hp, self.damage, self.speed, self.max_shooting_delay, self.bullet_type = type_values
-		self.controller = controller
-
+	def __init__(self, pos, size, color):
 		self.surface = pygame.surface.Surface(size)
 		self.surface.fill(color)
-
-		self.pos = [float(x) for x in pos[:2]]
+		self.pos = list(pos)
 		self.alive = True
-		self.hp = self.max_hp
-		self.shooting_delay = 0
 
-	def shoot(self, shooting):
-		bullets = []
-		if shooting and self.shooting_delay <= 0:
-			bullets.append(Object(self.pos, self.bullet_type))
-			self.shooting_delay = self.max_shooting_delay
-		if self.shooting_delay > 0:
-			self.shooting_delay -= 1
-		return bullets
+	def shoot(self):
+		return []
 
-	def move(self, x, y, rect_list=None):
-		old_pos = self.pos
-		self.pos = tuple(map(operator.add, map(float, self.pos), (x, y)))
-		if rect_list is not None:
-			if self.get_rect().collidelist(rect_list) != -1:
-				self.pos = old_pos
-
-	def auto_move(self):
-		self.move(self.speed[0], self.speed[1])
+	def collide_with(self, other):
+		pass
 
 	def get_rect(self):
 		rect = self.surface.get_rect()
 		rect.center = tuple(map(int, self.pos))
 		return rect
 
-class Player:
+class PlayerBullet(Object):
+	def __init__(self, pos):
+		Object.__init__(self, pos, BULLET_SIZE, BLUE)
+
+	def collide_with(self, other):
+		if isinstance(other, Enemy):
+			self.alive = False
+
+	def move(self):
+		self.pos[1] -= BULLET_SPEED
+
+class EnemyBullet(Object):
+	def __init__(self, pos):
+		Object.__init__(self, pos, BULLET_SIZE, RED)
+
+	def collide_with(self, other):
+		if isinstance(other, Platform):
+			self.alive = False
+
+	def move(self):
+		self.pos[1] += BULLET_SPEED
+
+class ShootingObject(Object):
+	def __init__(self, pos, size, color, shooting_delay, bullet_type):
+		Object.__init__(self, pos, size, color)
+		self.max_shooting_delay, self.bullet_type = shooting_delay, bullet_type
+		self.shooting_delay = 0
+
+	def _shoot(self, shooting=True):
+		bullets = []
+		if shooting and self.shooting_delay <= 0:
+			bullets.append(self.bullet_type(self.pos))
+			self.shooting_delay = self.max_shooting_delay
+		if self.shooting_delay > 0:
+			self.shooting_delay -= 1
+		return bullets
+
+class PlayerController:
 	def __init__(self, rects):
 		self.rects = rects
-		self.shift = (0, 0)
+		self.shift = 0
 		self.shooting = False
 
-	def move(self, o):
-		o.move(self.shift, 0, self.rects)
+class Platform(ShootingObject):
+	def __init__(self, pos, controller):
+		ShootingObject.__init__(self, pos, PLATFORM_SIZE, BLUE, PLAYER_SHOOTING_DELAY, PlayerBullet)
+		self.controller = controller
+		self.max_hp = PLATFORM_HP
+		self.hp = self.max_hp
 
-	def shoot(self, o):
-		return o.shoot(self.shooting)
+	def collide_with(self, other):
+		if isinstance(other, Enemy):
+			self.hp -= ENEMY_DAMAGE
+		elif isinstance(other, EnemyBullet):
+			self.hp -= BULLET_DAMAGE
+		if self.hp <= 0:
+			self.alive = False
 
-class Enemy:
-	def move(self, o):
-		pass
+	def move(self):
+		old_pos = self.pos[0]
+		self.pos[0] += self.controller.shift
+		if self.get_rect().collidelist(self.controller.rects) != -1:
+			self.pos[0] = old_pos
 
-	def shoot(self, o):
-		return o.shoot(True)
+	def shoot(self):
+		return self._shoot(self.controller.shooting)
+
+class Enemy(ShootingObject):
+	def __init__(self, pos):
+		ShootingObject.__init__(self, pos, ENEMY_SIZE, RED, ENEMY_SHOOTING_DELAY, EnemyBullet)
+		self.max_hp = ENEMY_HP
+		self.hp = self.max_hp
+
+	def collide_with(self, other):
+		if isinstance(other, Platform):
+			self.hp -= PLATFORM_DAMAGE
+		elif isinstance(other, PlayerBullet):
+			self.hp -= BULLET_DAMAGE
+		if self.hp <= 0:
+			self.alive = False
+
+	def shoot(self):
+		return self._shoot()
+
+	def move(self):
+		self.pos[1] += LEVEL_SPEED + ENEMY_SPEED
+
+class Bonus(Object):
+	def __init__(self, pos):
+		Object.__init__(self, pos, BONUS_SIZE, YELLOW)
+
+	def collide_with(self, other):
+		if isinstance(other, Platform):
+			self.alive = False
+
+	def move(self):
+		self.pos[1] += LEVEL_SPEED
 
 
 pygame.init()
@@ -122,14 +164,14 @@ wall_right_rect = wall_right.get_rect()
 wall_right_rect.topright = SCREEN_SIZE[0], 0
 
 level_map = []
-level_map += [(ENEMY_TYPE, Enemy, i * 500, 100 + i * 25) for i in range(20)]
-level_map += [(BONUS_TYPE, None, 100 + i * 1000, random.randrange(wall_left_rect.right + BONUS_SIZE[0]/2, wall_right_rect.left - BONUS_SIZE[0]/2)) for i in range(5)]
+level_map += [(Enemy, i * 500, 100 + i * 25) for i in range(20)]
+level_map += [(Bonus, 100 + i * 1000, random.randrange(wall_left_rect.right + BONUS_SIZE[0]/2, wall_right_rect.left - BONUS_SIZE[0]/2)) for i in range(5)]
 
-player = Player([wall_left_rect, wall_right_rect])
+player = PlayerController([wall_left_rect, wall_right_rect])
 
 platform_count = 3
 level_pos = 0
-platform = Object(START_POS, PLATFORM_TYPE, player)
+platform = Platform(START_POS, player)
 objects = [platform]
 
 while True:
@@ -145,34 +187,26 @@ while True:
 	# Logic.
 	level_pos += LEVEL_SPEED
 
-	for object_type, controller, map_pos, screen_pos in level_map:
+	for object_type, map_pos, screen_pos in level_map:
 		if map_pos < level_pos:
-			objects.append(Object((screen_pos, 0), object_type, controller() if controller else None))
-	level_map = [(object_type, controller, map_pos, screen_pos) for object_type, controller, map_pos, screen_pos in level_map if map_pos > level_pos]
+			objects.append(object_type((screen_pos, 0)))
+	level_map = [(object_type, map_pos, screen_pos) for object_type, map_pos, screen_pos in level_map if map_pos > level_pos]
 
 	new_objects = []
 	for o in objects:
-		if o.controller:
-			o.controller.move(o)
-			new_objects += o.controller.shoot(o)
-		o.auto_move()
+		o.move()
+		new_objects += o.shoot()
 	objects += new_objects
 
 	for a in objects:
 		for b in objects:
-			if (a.party, b.party) in COLLIDES:
-				if a.get_rect().colliderect(b.get_rect()):
-					a.hp -= b.damage
-					b.hp -= a.damage
-
-	for o in objects:
-		if o.max_hp > 0 and o.hp <= 0:
-			o.alive = False
+			if a.get_rect().colliderect(b.get_rect()):
+				a.collide_with(b)
 
 	objects = [o for o in objects if o.alive and 0 < o.get_rect().bottom and o.get_rect().top < SCREEN_SIZE[1]]
 	if not platform.alive:
 		platform_count -= 1
-		platform = Object(START_POS, PLATFORM_TYPE, player)
+		platform = Platform(START_POS, player)
 		objects.append(platform)
 		if platform_count < 0:
 			sys.exit()
@@ -184,9 +218,9 @@ while True:
 	for o in objects:
 		screen.blit(o.surface, o.get_rect())
 
-	hud = ["Level: {0:10.2f}; x{2}, {1}".format(level_pos, "shooting" if player.shooting else "", platform_count)]
+	hud = ["Level: {0:10.2f}; {2}x {3}/{4}hp, {1}".format(level_pos, "shooting" if player.shooting else "", platform_count, platform.hp, platform.max_hp)]
 	for o in objects:
-		hud.append("{0}: ({1:0.2f},{2:#0.2f}) {3}/{4}hp".format(o.party, o.pos[0], o.pos[1], o.hp, o.max_hp))
+		hud.append("{0}: ({1:0.2f},{2:#0.2f})".format(o.__class__.__name__, o.pos[0], o.pos[1]))
 	for number, line in enumerate(hud):
 		screen.blit(font.render(line, True, WHITE), (wall_left_rect.right, number * font.get_height()))
 

@@ -1,23 +1,25 @@
-import operator, math
+import operator, math, random
 import base
 
 PLATFORM_SIZE = 50, 60
 PLATFORM_HP = 100
 PLATFORM_DAMAGE = 65535
-ENEMY_HP = 30
-ENEMY_DAMAGE = 30
-ENEMY_SIZE = 40, 50
-ENEMY_SPEED = 0.0
+TURRET_HP = 30
+TURRET_DAMAGE = 30
+TURRET_SIZE = 40, 50
 WALL_SIZE = 50, base.SCREEN_SIZE[1]
 BULLET_SIZE = 10, 10
 BULLET_SPEED = 2
 BULLET_DAMAGE = 10
 PLAYER_SHOOTING_DELAY = 100
-ENEMY_SHOOTING_DELAY = 1000
+TURRET_SHOOTING_DELAY = 1000
 START_POS = 320, 420
 BONUS_SIZE = 32, 32
 HEALTH_BONUS_INC = 30
 INVULNERABILITY_TIME = 2000
+BOMB_SIZE = 30, 30
+BOMB_HP = 20
+BOMB_SPEED = 1
 
 class PlayerBullet(base.Object):
 	def __init__(self, pos):
@@ -25,7 +27,7 @@ class PlayerBullet(base.Object):
 		self.speed = (0, -BULLET_SPEED)
 
 	def collide_with(self, other):
-		if isinstance(other, Enemy):
+		if isinstance(other, Turret) or isinstance(other, Bomb):
 			self.alive = False
 
 	def action(self):
@@ -66,9 +68,9 @@ class Platform(base.Object):
 		self.invulnerability = 0
 
 	def collide_with(self, other):
-		if isinstance(other, Enemy):
+		if isinstance(other, Turret) or isinstance(other, Bomb):
 			if self.invulnerability <= 0:
-				self.hp -= ENEMY_DAMAGE
+				self.hp -= TURRET_DAMAGE
 		elif isinstance(other, EnemyBullet):
 			if self.invulnerability <= 0:
 				self.hp -= BULLET_DAMAGE
@@ -102,11 +104,11 @@ class Platform(base.Object):
 			bullets += weapon.shoot(map(operator.add, self.pos, shift), self.controller.shooting)
 		return bullets
 
-class Enemy(base.Object):
+class Turret(base.Object):
 	def __init__(self, pos):
-		base.Object.__init__(self, pos, ENEMY_SIZE, base.RED)
-		self.weapon = base.Weapon(ENEMY_SHOOTING_DELAY, EnemyBullet)
-		self.max_hp = ENEMY_HP
+		base.Object.__init__(self, pos, TURRET_SIZE, base.RED)
+		self.weapon = base.Weapon(TURRET_SHOOTING_DELAY, EnemyBullet)
+		self.max_hp = TURRET_HP
 		self.hp = self.max_hp
 
 	def collide_with(self, other):
@@ -118,8 +120,26 @@ class Enemy(base.Object):
 			self.alive = False
 
 	def action(self):
-		self.pos[1] += base.LEVEL_SPEED + ENEMY_SPEED
+		self.pos[1] += base.LEVEL_SPEED
 		return self.weapon.shoot(self.pos)
+
+class Bomb(base.Object):
+	def __init__(self, pos):
+		base.Object.__init__(self, pos, BOMB_SIZE, base.RED)
+		self.max_hp = BOMB_HP
+		self.hp = self.max_hp
+
+	def collide_with(self, other):
+		if isinstance(other, Platform):
+			self.hp -= PLATFORM_DAMAGE
+		elif isinstance(other, PlayerBullet):
+			self.hp -= BULLET_DAMAGE
+		if self.hp <= 0:
+			self.alive = False
+
+	def action(self):
+		self.pos[1] += base.LEVEL_SPEED + BOMB_SPEED
+		return []
 
 class Bonus(base.Object):
 	def __init__(self, pos, color):
@@ -145,4 +165,26 @@ class InvulnerabilityBonus(Bonus):
 	def __init__(self, pos):
 		base.Object.__init__(self, pos, BONUS_SIZE, base.PURPLE)
 
+class LevelMap:
+	def __init__(self):
+		self.level_map = []
 
+	def random_pos(self, left, right, size):
+		return random.randrange(left + size / 2, right - size / 2)
+
+	def add_once(self, pos_func):
+		pass
+
+	def create(self, left, right):
+		self.level_map += [(Turret, i * 500, 100 + i * 25) for i in range(20)]
+		self.level_map += [(WeaponBonus, 100 + i * 1000, self.random_pos(left, right, BONUS_SIZE[0])) for i in range(5)]
+		self.level_map += [(HealthBonus, 400 + i * 1000, self.random_pos(left, right, BONUS_SIZE[0])) for i in range(5)]
+		self.level_map += [(InvulnerabilityBonus, 0, self.random_pos(left, right, BONUS_SIZE[0]))]
+
+	def pull(self, level_pos):
+		objects = []
+		for object_type, map_pos, screen_pos in self.level_map:
+			if map_pos < level_pos:
+				objects.append(object_type((screen_pos, 0)))
+		self.level_map = [(object_type, map_pos, screen_pos) for object_type, map_pos, screen_pos in self.level_map if map_pos > level_pos]
+		return objects
